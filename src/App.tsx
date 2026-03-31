@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import React, { useState, FormEvent, ErrorInfo, ReactNode } from 'react';
 import { 
   BarChart3, 
   CheckCircle2, 
@@ -12,19 +12,114 @@ import {
   PieChart, 
   ShieldCheck, 
   Zap,
-  ArrowRight
+  ArrowRight,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { joinWaitlist } from './firebase';
+
+// Error Boundary Component
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null
+  };
+
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props);
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Uncaught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Something went wrong.";
+      try {
+        if (this.state.error?.message) {
+          const parsed = JSON.parse(this.state.error.message);
+          if (parsed.error) {
+            errorMessage = `Database Error: ${parsed.error}`;
+          }
+        }
+      } catch {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-brand-bg p-4">
+          <div className="max-w-md w-full glass-card rounded-2xl p-8 text-center shadow-xl">
+            <div className="flex justify-center mb-6">
+              <div className="h-16 w-16 rounded-full bg-red-50 flex items-center justify-center">
+                <AlertTriangle className="h-8 w-8 text-red-500" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-brand-primary mb-4">Application Error</h2>
+            <p className="text-brand-muted mb-8">{errorMessage}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full rounded-md bg-brand-primary px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (this as any).props.children;
+  }
+}
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [email, setEmail] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (email) {
-      setIsSubmitted(true);
-      setEmail('');
+      setIsSubmitting(true);
+      setError(null);
+      try {
+        await joinWaitlist(email);
+        setIsSubmitted(true);
+        setEmail('');
+      } catch (err: any) {
+        let msg = "Failed to join waitlist. Please try again.";
+        try {
+          const parsed = JSON.parse(err.message);
+          msg = parsed.error || msg;
+        } catch {
+          msg = err.message || msg;
+        }
+        setError(msg);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -100,9 +195,10 @@ export default function App() {
                     />
                     <button
                       type="submit"
-                      className="flex-none rounded-md bg-brand-primary px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary transition-all"
+                      disabled={isSubmitting}
+                      className="flex-none rounded-md bg-brand-primary px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Join Waitlist
+                      {isSubmitting ? 'Joining...' : 'Join Waitlist'}
                     </button>
                   </form>
                   <a href="#solution" className="text-sm font-semibold leading-6 text-brand-primary flex items-center gap-1 group">
@@ -112,6 +208,11 @@ export default function App() {
                 {isSubmitted && (
                   <p className="mt-4 text-sm text-green-600 font-medium">
                     Thanks! We'll be in touch soon.
+                  </p>
+                )}
+                {error && (
+                  <p className="mt-4 text-sm text-red-600 font-medium">
+                    {error}
                   </p>
                 )}
               </motion.div>
@@ -544,12 +645,23 @@ export default function App() {
                   />
                   <button
                     type="submit"
-                    className="flex-none rounded-md bg-white px-5 py-3 text-sm font-semibold text-brand-primary shadow-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white transition-all"
+                    disabled={isSubmitting}
+                    className="flex-none rounded-md bg-white px-5 py-3 text-sm font-semibold text-brand-primary shadow-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Request Access
+                    {isSubmitting ? 'Requesting...' : 'Request Access'}
                   </button>
                 </form>
               </div>
+              {isSubmitted && (
+                <p className="mt-4 text-sm text-green-400 font-medium">
+                  Thanks! We'll be in touch soon.
+                </p>
+              )}
+              {error && (
+                <p className="mt-4 text-sm text-red-400 font-medium">
+                  {error}
+                </p>
+              )}
               <p className="mt-4 text-xs text-slate-400">
                 Limited spots available for Q2 2026.
               </p>
